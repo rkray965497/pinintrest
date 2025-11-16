@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WallGen: AI Wallpaper Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the Pinterest-like grid and aesthetics */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+        }
+
+        /* Styling for the image container to simulate Pinterest pins */
+        .pin-card {
+            background-color: #ffffff;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .pin-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+        }
+
+        .wallpaper-image {
+            width: 100%;
+            height: auto;
+            object-fit: cover;
+            aspect-ratio: 9/16; /* Standard phone wallpaper ratio */
+        }
+
+        /* Responsive grid configuration */
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr); /* 2 columns on mobile */
+            gap: 16px;
+        }
+
+        @media (min-width: 640px) {
+            .image-grid {
+                grid-template-columns: repeat(3, 1fr); /* 3 columns on sm */
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .image-grid {
+                grid-template-columns: repeat(4, 1fr); /* 4 columns on lg */
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container mx-auto p-4 md:p-8">
+        <!-- Header & Search Bar -->
+        <header class="text-center mb-8">
+            <h1 class="text-5xl font-extrabold text-gray-800 mb-2">WallGen</h1>
+            <p class="text-xl text-gray-500 mb-6">Generate your next custom wallpaper with AI.</p>
+            <div class="flex flex-col sm:flex-row justify-center items-center max-w-2xl mx-auto space-y-3 sm:space-y-0 sm:space-x-3">
+                <input type="text" id="promptInput" placeholder="Enter a detailed prompt (e.g., 'A vibrant neon synthwave city at night, 4k')"
+                       class="w-full p-3 border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500 shadow-inner transition-all duration-200"
+                       value="minimalist mountain landscape at sunset"
+                       onkeydown="if(event.key === 'Enter') generateImages()">
+                
+                <!-- NEW LLM-Powered Feature: Prompt Enhancement -->
+                <button onclick="enhancePrompt()" id="enhanceButton"
+                        class="w-full sm:w-auto px-6 py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
+                    Enhance Prompt ✨
+                </button>
+                
+                <button onclick="generateImages()" id="generateButton"
+                        class="w-full sm:w-auto px-6 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
+                    Generate
+                </button>
+            </div>
+        </header>
+
+        <!-- Loading Indicator & Status Message -->
+        <div id="statusArea" class="text-center mb-8">
+            <!-- Content will be injected here -->
+        </div>
+
+        <!-- Image Grid -->
+        <div id="imageGrid" class="image-grid">
+            <!-- Generated pins will be dynamically added here -->
+        </div>
+        
+    </div>
+
+    <!-- Modal for displaying full image/download option -->
+    <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4" onclick="closeModal(event)">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-3xl w-full relative" onclick="event.stopPropagation()">
+            <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-600 hover:text-gray-900 text-2xl font-bold">&times;</button>
+            <img id="modalImage" src="" alt="Generated Wallpaper" class="w-full h-auto rounded-lg mb-4 max-h-[80vh] object-contain">
+            <a id="downloadLink" href="#" download="ai-wallpaper.png"
+               class="block w-full text-center py-3 bg-green-500 text-white font-semibold rounded-xl hover:bg-green-600 transition-all duration-300">
+                Download Image
+            </a>
+        </div>
+    </div>
+
+
+    <script>
+        // Global Constants
+        const apiKey = "";
+
+        // Global Constants for IMAGEN (Image Generation - Core Feature)
+        const IMG_MODEL_NAME = 'imagen-4.0-generate-001';
+        const IMG_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${IMG_MODEL_NAME}:predict?key=${apiKey}`;
+        
+        // Global Constants for LLM (Prompt Enhancement - New Feature)
+        const LLM_MODEL_NAME = 'gemini-2.5-flash-preview-09-2025';
+        const LLM_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${LLM_MODEL_NAME}:generateContent?key=${apiKey}`;
+
+
+        // Utility functions
+        function showLoading() {
+            document.getElementById('generateButton').disabled = true;
+            document.getElementById('enhanceButton').disabled = true;
+            document.getElementById('statusArea').innerHTML = `
+                <div class="flex justify-center items-center space-x-2 text-indigo-600">
+                    <div class="w-6 h-6 border-4 border-t-4 border-t-indigo-600 border-gray-200 rounded-full animate-spin"></div>
+                    <p class="font-medium">Generating your AI wallpaper...</p>
+                </div>
+            `;
+            document.getElementById('imageGrid').innerHTML = ''; // Clear previous results
+        }
+
+        function hideLoading(message = '', isError = false) {
+            document.getElementById('generateButton').disabled = false;
+            document.getElementById('enhanceButton').disabled = false;
+            const statusArea = document.getElementById('statusArea');
+            if (message) {
+                statusArea.innerHTML = `<p class="text-lg ${isError ? 'text-red-500' : 'text-gray-600'}">${message}</p>`;
+            } else {
+                statusArea.innerHTML = '';
+            }
+        }
+
+        function showEnhanceLoading() {
+            document.getElementById('generateButton').disabled = true;
+            document.getElementById('enhanceButton').disabled = true;
+            document.getElementById('enhanceButton').textContent = 'Enhancing...';
+            document.getElementById('statusArea').innerHTML = `
+                <div class="flex justify-center items-center space-x-2 text-purple-600">
+                    <div class="w-6 h-6 border-4 border-t-4 border-t-purple-600 border-gray-200 rounded-full animate-spin"></div>
+                    <p class="font-medium">Polishing your prompt for optimal results...</p>
+                </div>
+            `;
+        }
+
+        function hideEnhanceLoading(isError = false) {
+            document.getElementById('generateButton').disabled = false;
+            document.getElementById('enhanceButton').disabled = false;
+            document.getElementById('enhanceButton').textContent = 'Enhance Prompt ✨';
+            if (!isError) {
+                // Clear status only if generateImages isn't immediately called
+                document.getElementById('statusArea').innerHTML = '';
+            }
+        }
+
+        // --- Core API Request Logic ---
+        async function fetchWithBackoff(url, options, maxRetries = 5) {
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) {
+                        return response;
+                    }
+
+                    if (response.status === 429 || response.status >= 500) {
+                        throw new Error(`Server error or rate limit (Status: ${response.status})`);
+                    }
+
+                    const errorJson = await response.json();
+                    console.error('API Error Response:', errorJson);
+                    throw new Error(errorJson.error?.message || `API request failed with status ${response.status}`);
+
+                } catch (error) {
+                    console.error(`Attempt ${attempt + 1} failed:`, error.message);
+                    if (attempt === maxRetries - 1) {
+                        throw new Error("Failed to connect to the AI model after multiple retries. Please try again later.");
+                    }
+                    // Exponential backoff
+                    const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        // --- LLM Feature: Prompt Enhancement ---
+        async function enhancePrompt() {
+            const promptInput = document.getElementById('promptInput');
+            const briefPrompt = promptInput.value.trim();
+
+            if (!briefPrompt) {
+                hideLoading('Please enter a brief idea to enhance.', true);
+                return;
+            }
+
+            showEnhanceLoading();
+
+            const systemPrompt = "You are a world-class creative director for AI image generation. Take the user's brief prompt and expand it into a highly detailed, descriptive, single-paragraph image generation prompt. Focus on cinematic lighting, style, color palette, texture, and mood. DO NOT include any instructions about resolution or aspect ratio (like 9:16 or 4k). Only output the expanded prompt text.";
+            const userQuery = `Expand this image prompt: "${briefPrompt}"`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            };
+
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
+
+            try {
+                const response = await fetchWithBackoff(LLM_API_URL, options);
+                const result = await response.json();
+                const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+                if (generatedText) {
+                    promptInput.value = generatedText;
+                    hideEnhanceLoading();
+                    hideLoading("Prompt enhanced! Click 'Generate' to create your high-quality wallpaper.");
+                } else {
+                    hideEnhanceLoading(true);
+                    hideLoading("Could not enhance prompt. Try a different idea.", true);
+                }
+
+            } catch (error) {
+                console.error("Prompt Enhancement Failed:", error);
+                hideEnhanceLoading(true);
+                hideLoading(error.message || "An error occurred during prompt enhancement.", true);
+            }
+        }
+
+
+        // --- Core Image Generation Logic ---
+        async function generateImages() {
+            const prompt = document.getElementById('promptInput').value.trim();
+            if (!prompt) {
+                hideLoading('Please enter a prompt to generate a wallpaper.', true);
+                return;
+            }
+
+            showLoading();
+
+            // Append specific instructions to guide the model towards
